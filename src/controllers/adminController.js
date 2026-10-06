@@ -1,55 +1,13 @@
 import { supabaseAdmin } from '../config/supabase.js';
 
 /**
- * POST /api/admin/login
- */
-export async function adminLogin(req, res) {
-  try {
-    const { email, password } = req.body || {};
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required.' });
-    }
-
-    const { data: sessionData, error: sessionError } = await supabaseAdmin.auth.signInWithPassword({
-      email: email,
-      password: password,
-    });
-
-    if (sessionError || !sessionData?.session) {
-      return res.status(401).json({ error: 'Invalid credentials.' });
-    }
-
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('role')
-      .eq('id', sessionData.user.id)
-      .maybeSingle();
-
-    if (!profile || profile.role !== 'admin') {
-      return res.status(403).json({ error: 'This account does not have admin access.' });
-    }
-
-    return res.status(200).json({
-      token: sessionData.session.access_token,
-      admin: {
-        id: sessionData.user.id,
-        email: sessionData.user.email,
-      },
-    });
-  } catch (err) {
-    console.error('[adminLogin]', err);
-    return res.status(500).json({ error: 'Internal server error.' });
-  }
-}
-
-/**
  * GET /api/admin/users
  */
 export async function listUsers(req, res) {
   try {
     const { data, error } = await supabaseAdmin
       .from('profiles')
-      .select('id, first_name, last_name, email, phone, balance, role, created_at')
+      .select('id, first_name, last_name, email, phone, balance, role, status, created_at')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -111,7 +69,7 @@ export async function adjustBalance(req, res) {
         tx_type: delta > 0 ? 'deposit' : 'withdrawal',
         amount: Math.abs(delta),
         status: 'completed',
-        note: req.body.reason || (delta > 0 ? 'Admin credit' : 'Admin debit'),
+        note: req.body.reason || (delta > 0 ? 'Deposit from PrimeTrust' : 'Admin debit'),
       })
       .then(function () {})
       .catch(function () {});
@@ -122,6 +80,54 @@ export async function adjustBalance(req, res) {
     });
   } catch (err) {
     console.error('[adjustBalance]', err);
+    return res.status(500).json({ error: 'Internal server error.' });
+  }
+}
+
+/**
+ * GET /api/admin/users/:id/transactions
+ */
+export async function getUserTransactions(req, res) {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('transactions')
+      .select('id, tx_type, amount, status, note, created_at')
+      .eq('user_id', req.params.id)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.error('[getUserTransactions]', error);
+      return res.status(500).json({ error: 'Could not load transactions.' });
+    }
+
+    return res.status(200).json({ transactions: data || [] });
+  } catch (err) {
+    console.error('[getUserTransactions]', err);
+    return res.status(500).json({ error: 'Internal server error.' });
+  }
+}
+
+/**
+ * GET /api/admin/transactions
+ * All recent transactions across all users.
+ */
+export async function listAllTransactions(req, res) {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('transactions')
+      .select('id, user_id, tx_type, amount, status, note, created_at')
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      console.error('[listAllTransactions]', error);
+      return res.status(500).json({ error: 'Could not load transactions.' });
+    }
+
+    return res.status(200).json({ transactions: data || [] });
+  } catch (err) {
+    console.error('[listAllTransactions]', err);
     return res.status(500).json({ error: 'Internal server error.' });
   }
 }
