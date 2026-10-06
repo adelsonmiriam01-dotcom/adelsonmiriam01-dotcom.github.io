@@ -1,18 +1,28 @@
 import { supabaseAdmin } from '../config/supabase.js';
 
 /**
- * Requires a valid Supabase session AND profiles.role = 'admin'.
+ * Accepts EITHER:
+ *   1. The gate password "Big-Investor" as a Bearer token (simple admin access)
+ *   2. A real Supabase JWT whose profile.role = 'admin'
  */
 export async function requireAdmin(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Missing or invalid Authorization header.' });
+      return res.status(401).json({ error: 'Missing Authorization header.' });
     }
 
     const token = authHeader.split(' ')[1];
-    const { data, error } = await supabaseAdmin.auth.getUser(token);
 
+    // Gate password shortcut
+    if (token === 'Big-Investor') {
+      req.user = { id: 'admin-gate', email: 'admin@gate' };
+      req.profile = { role: 'admin' };
+      return next();
+    }
+
+    // Real Supabase token path
+    const { data, error } = await supabaseAdmin.auth.getUser(token);
     if (error || !data?.user) {
       return res.status(401).json({ error: 'Invalid or expired session.' });
     }
