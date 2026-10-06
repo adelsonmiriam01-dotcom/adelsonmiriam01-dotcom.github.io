@@ -13,53 +13,18 @@ const app = express();
 app.use(helmet());
 
 /* ============================================================
-   CORS — robust configuration
+   CORS — allow everything (no blocking)
    ============================================================ */
-const rawOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
-  .split(',')
-  .map((o) => o.trim().replace(/\/+$/, '')) // strip trailing slashes
-  .filter(Boolean);
-
-// Always allow localhost during development.
-const allowedOrigins = new Set([
-  ...rawOrigins,
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:5173',
-]);
-
-// Pattern for Netlify preview deploys: *.netlify.app
-// e.g. https://deploy-preview-42--prime-tru.netlify.app
-const NETLIFY_PATTERN = /^https:\/\/[a-z0-9-]+\.netlify\.app$/i;
-const NETLIFY_PREVIEW_PATTERN = /^https:\/\/[a-z0-9-]+--[a-z0-9-]+\.netlify\.app$/i;
-
 app.use(
   cors({
-    origin(origin, callback) {
-      // No origin: Postman, curl, mobile apps, health checks — allow.
-      if (!origin) return callback(null, true);
-
-      const clean = origin.replace(/\/+$/, '');
-
-      if (allowedOrigins.has(clean)) {
-        return callback(null, true);
-      }
-      if (NETLIFY_PATTERN.test(clean) || NETLIFY_PREVIEW_PATTERN.test(clean)) {
-        return callback(null, true);
-      }
-
-      console.warn('[CORS] Blocked origin:', clean);
-      console.warn('[CORS] Allowed origins:', [...allowedOrigins].join(', '));
-      return callback(new Error(`CORS blocked for origin: ${clean}`), false);
-    },
-    credentials: true,
+    origin: true,          // reflect the request origin
+    credentials: true,     // allow cookies / Authorization header
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
 
-// Handle preflight requests explicitly (Express 4 doesn't auto-respond).
+// Respond to preflight requests.
 app.options('*', cors());
 
 /* ---------- Body parsing ---------- */
@@ -73,8 +38,8 @@ app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
    Rate limiting
    ============================================================ */
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 60, // max 60 requests per window per IP (raised for dev + retries)
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many attempts. Please try again later.' },
@@ -88,7 +53,7 @@ app.get('/health', (_req, res) => {
     status: 'ok',
     service: 'primetrust-api',
     timestamp: new Date().toISOString(),
-    allowedOrigins: [...allowedOrigins],
+    cors: 'open — all origins allowed',
   });
 });
 
@@ -105,12 +70,6 @@ app.use((_req, res) => {
 /* ---------- Error handler ---------- */
 app.use((err, _req, res, _next) => {
   console.error('[error]', err);
-
-  // CORS errors — return 403 with a clear message instead of 500.
-  if (err && err.message && err.message.startsWith('CORS blocked')) {
-    return res.status(403).json({ error: err.message });
-  }
-
   res.status(err.status || 500).json({
     error: process.env.NODE_ENV === 'production' ? 'Internal server error.' : err.message,
   });
