@@ -2,7 +2,6 @@ import { supabaseAdmin } from '../config/supabase.js';
 
 /**
  * GET /api/account/me
- * Returns user profile + balance + transactions for the dashboard.
  */
 export async function me(req, res) {
   try {
@@ -66,12 +65,14 @@ export async function me(req, res) {
 
 /**
  * POST /api/account/withdraw
- * Body: { amount: number, bankAccountId: string }
+ * Stores structured metadata on the transaction so admin can act on it.
  */
 export async function withdraw(req, res) {
   try {
     const userId = req.user.id;
-    const amount = parseFloat(req.body.amount);
+    const body = req.body || {};
+    const amount = parseFloat(body.amount);
+    const method = body.method === 'crypto' ? 'crypto' : 'bank';
 
     if (!amount || isNaN(amount) || amount <= 0) {
       return res.status(400).json({ error: 'A valid withdrawal amount is required.' });
@@ -99,6 +100,30 @@ export async function withdraw(req, res) {
       return res.status(500).json({ error: 'Could not process withdrawal.' });
     }
 
+    // Compose note + structured metadata
+    let note, metadata;
+    if (method === 'crypto') {
+      metadata = {
+        method: 'crypto',
+        coin: body.coin || null,
+        network: body.network || null,
+        walletAddress: body.walletAddress || null,
+      };
+      note = 'Crypto withdrawal · ' + (body.coin || '?') + ' on ' + (body.network || '?') +
+        ' · ' + (body.walletAddress || '').slice(0, 10) + '…';
+    } else {
+      metadata = {
+        method: 'bank',
+        accountHolder: body.accountHolder || null,
+        countryCode: body.countryCode || null,
+        bankName: body.bankName || null,
+        iban: body.iban || null,
+        swift: body.swift || null,
+      };
+      note = 'Bank withdrawal · ' + (body.bankName || 'Bank') +
+        ' · IBAN ' + (body.iban || '').slice(0, 4) + '••••';
+    }
+
     await supabaseAdmin
       .from('transactions')
       .insert({
@@ -106,19 +131,18 @@ export async function withdraw(req, res) {
         tx_type: 'withdrawal',
         amount: amount,
         status: 'pending',
-        note: req.body.bankAccountId
-          ? 'Withdrawal to ' + req.body.bankAccountId
-          : 'Withdrawal request',
+        note: note,
+        metadata: metadata,
       })
       .then(function () {})
-      .catch(function () {});
+      .catch(function (e) { console.error('[withdraw] tx insert', e); });
 
     return res.status(200).json({
-      message: 'Withdrawal request submitted.',
+      message: 'Withdrawal submitted.',
       newBalance: newBalance,
     });
   } catch (err) {
     console.error('[withdraw]', err);
     return res.status(500).json({ error: 'Internal server error.' });
   }
-  }
+        }
