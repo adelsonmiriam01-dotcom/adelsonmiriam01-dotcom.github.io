@@ -14,6 +14,7 @@ import {
 import {
   listWithdrawals,
   sendWithdrawalEmail,
+  previewEmail,
 } from '../controllers/emailController.js';
 import { requireAdmin } from '../middleware/admin.js';
 
@@ -34,5 +35,6 @@ router.get('/messages/unread', requireAdmin, unreadCount);
 /* Withdrawal emails */
 router.get('/withdrawals', requireAdmin, listWithdrawals);
 router.post('/withdrawals/:id/email', requireAdmin, sendWithdrawalEmail);
+router.post('/email/preview', requireAdmin, previewEmail);
 
 export default router;
